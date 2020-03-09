@@ -21,4 +21,10 @@ int handle_kprobe(struct pt_regs *ctx)
 	return 0;
 }
 
+SEC("uprobe/openssl_write")
+int handle_uprobe(struct pt_regs *ctx)
+{
+	return 0;
+}
+
 char _license[] SEC("license") = "GPL";

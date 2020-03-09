@@ -31,7 +31,7 @@ $(OUTPUT) $(OUTPUT)/libbpf:
 
 $(APPS): %: $(OUTPUT)/%.o $(OUTPUT)/trace_helpers.o | $(OUTPUT)
 	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $^ -lbpf -lelf -lz -o $@
+	$(Q)$(CC) $(CFLAGS) $^ -lbcc -lbpf -lelf -lz -o $@
 	$(LLVM_STRIP) $@
 
 $(patsubst %,$(OUTPUT)/%.o,$(APPS)): %.o: %.skel.h

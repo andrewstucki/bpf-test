@@ -36,6 +36,8 @@ RUN ln -s /usr/bin/clang /usr/bin/cc && \
   elfutils-dev \
   zlib-static \
   linux-headers \
+  bcc-static \
+  bcc-dev \
   curl && \
   \
   mkdir -p /src/libbpf && cd /src/libbpf && \
