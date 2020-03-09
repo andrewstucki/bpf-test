@@ -18,8 +18,6 @@
 #define SYS_NANOSLEEP_KPROBE_NAME "sys_nanosleep"
 #endif
 
-#define LIBSSL_PATH "/lib/x86_64-linux-gnu/libssl.so"
-
 static int sym_resolve_callback(const char *name, uint64_t addr, uint64_t _ignored, void *payload) {
   struct bcc_symbol *sym = (struct bcc_symbol *)payload;
   if (!strcmp(name, sym->name)) {
@@ -44,21 +42,27 @@ int main(int argc, char **argv) {
     .sample_cb = handle_event,
   };
 
+	const char *path = bcc_procutils_which_so("ssl", -1);
+	if (!path) {
+		fprintf(stderr, "unable to find libssl\n");
+		return 1;
+	}
+
 	obj = probe_bpf__open_and_load();
 	if (!obj) {
 		fprintf(stderr, "failed to open and/or load BPF object\n");
-		return 1;
+		goto free;
 	}
 
 	kprobe_link = bpf_program__attach_kprobe(obj->progs.handle_kprobe, false, SYS_NANOSLEEP_KPROBE_NAME);
 	if (!kprobe_link) {
 		fprintf(stderr, "failed to attach kprobe\n");
-		return 1;
+		goto cleanup;
 	}
   pb = perf_buffer__new(bpf_map__fd(obj->maps.events), 1, &pb_opts);
 	if (!pb) {
 		fprintf(stderr, "failed to initialize perf buffer\n");
-		return 1;
+		goto cleanup;
 	}
 
   struct bcc_symbol_option option = {
@@ -70,19 +74,25 @@ int main(int argc, char **argv) {
 	struct bcc_symbol sym = {
 		.name = "SSL_write"
 	};
-	err = bcc_elf_foreach_sym(LIBSSL_PATH, sym_resolve_callback, &option, &sym);
+	err = bcc_elf_foreach_sym(path, sym_resolve_callback, &option, &sym);
 	if ((err == -1) || (err == 0 && sym.offset == 0)) {
 		fprintf(stderr, "error finding symbol\n");
-	} else {
-		uprobe_link = bpf_program__attach_uprobe(obj->progs.handle_uprobe, true, -1, LIBSSL_PATH, sym.offset);
-		if (!uprobe_link) {
-			fprintf(stderr, "failed to attach uprobe\n");
-		}
+		goto cleanup_perf;
+	}
+
+	uprobe_link = bpf_program__attach_uprobe(obj->progs.handle_uprobe, true, -1, path, sym.offset);
+	if (!uprobe_link) {
+		fprintf(stderr, "failed to attach uprobe\n");
+		goto cleanup_perf;
 	}
 
 	usleep(1);
 
 	perf_buffer__poll(pb, 100);
+cleanup_perf:
 	perf_buffer__free(pb);
+cleanup:
 	probe_bpf__destroy(obj);
+free:
+	free((void *)path);
 }
