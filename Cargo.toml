@@ -1,0 +1,12 @@
+[package]
+name = "probe"
+version = "0.0.1"
+authors = ["Andrew Stucki <andrew.stucki@gmail.com>"]
+license = "GPL"
+edition = "2018"
+
+[dependencies]
+probe-sys = { path = "./probe-sys" }
+
+[workspace]
+members = [ "probe-sys" ]

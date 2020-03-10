@@ -1,11 +1,13 @@
 DIRECTORY := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-MAKE := docker run --rm -v ${DIRECTORY}/src:/src andrewstucki/libbpf-builder:0.0.7 make
+CONTAINER := docker run --rm -v ${DIRECTORY}:/src andrewstucki/libbpf-rust-builder:0.0.7
 
 build:
-	@$(MAKE)
+	@echo "Compiling release binary"
+	@$(CONTAINER) /bin/sh -c "cargo build --release && cp target/release/probe . && strip probe"
 
 clean:
-	@$(MAKE) clean
+	@echo "Cleaning"
+	@rm -rf probe-sys/src/.output target probe
 
 toolchain-llvm:
 	cd toolchain/llvm && \
@@ -16,3 +18,8 @@ toolchain-libbpf:
 	cd toolchain/libbpf && \
 	docker build . -t andrewstucki/libbpf-builder:0.0.7
 	docker push andrewstucki/libbpf-builder:0.0.7
+
+toolchain-rust:
+	cd toolchain/rust && \
+	docker build . -t andrewstucki/libbpf-rust-builder:0.0.7
+	docker push andrewstucki/libbpf-rust-builder:0.0.7
