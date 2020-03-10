@@ -7,14 +7,21 @@
 #include <libelf.h>
 #include <bcc/bcc_elf.h>
 #include <bcc/bcc_syms.h>
+#include "probe.h"
 #include "_probe.h"
 #include "probe.skel.h"
+
+struct handle_sleep_wrapper {
+	void *ctx;
+	handle_sleep *handler;
+};
 
 struct state {
 	struct probe_bpf *obj;
 	struct perf_buffer *pb;
 	struct bpf_link *kprobe;
 	struct bpf_link *uprobe;
+	struct handle_sleep_wrapper *handler;
 };
 
 static inline int sym_resolve_callback(const char *name, uint64_t addr, uint64_t _ignored, void *payload) {
@@ -26,25 +33,38 @@ static inline int sym_resolve_callback(const char *name, uint64_t addr, uint64_t
   return 0;
 }
 
-static inline void handle_event(void *ctx, int cpu, void *data, __u32 size) {
+static inline void handle_sleep_event(void *ctx, int cpu, void *data, __u32 size) {
   struct event *e = data;
-
-  fprintf(stderr, "Cookie: %llx Thread: %d, CPU: %d\n", e->cookie, e->pid, cpu);
+	struct handle_sleep_wrapper *handle = ctx;
+	struct sleep_event event = {
+		.cookie = e->cookie,
+		.tid = (e->pid >> 32) & 0xFFFF,
+		.pid = e->pid & 0xFFFF,
+		.cpu = cpu,
+	};
+	handle->handler(handle->ctx, event);
 }
 
-struct state * new_state() {
-	struct perf_buffer_opts pb_opts = {
-    .sample_cb = handle_event,
-  };
-
+struct state * new_state(void *ctx, handle_sleep *handler) {
 	struct state *s= (struct state *)malloc(sizeof(struct state));
 	if (!s) {
 		return NULL;
 	}
+	s->handler = (struct handle_sleep_wrapper *)malloc(sizeof(struct handle_sleep_wrapper));
+	if (!s->handler) {
+		goto cleanup_state;
+	}
+	s->handler->ctx = ctx;
+	s->handler->handler = handler;
+
+	struct perf_buffer_opts pb_opts = {
+    .sample_cb = handle_sleep_event,
+		.ctx = (void *)s->handler,
+  };
 
 	const char *path = bcc_procutils_which_so("ssl", -1);
 	if (!path) {
-		goto cleanup_state;
+		goto cleanup_handler;
 	}
 
   struct bcc_symbol_option option = {
@@ -58,12 +78,12 @@ struct state * new_state() {
 	};
 	int err = bcc_elf_foreach_sym(path, sym_resolve_callback, &option, &sym);
 	if ((err == -1) || (err == 0 && sym.offset == 0)) {
-		goto cleanup_state;
+		goto cleanup_handler;
 	}
 
 	s->obj = probe_bpf__open_and_load();
 	if (!s->obj) {
-		goto cleanup_state;
+		goto cleanup_handler;
 	}
   s->pb = perf_buffer__new(bpf_map__fd(s->obj->maps.events), 1, &pb_opts);
 	if (!s->pb) {
@@ -87,8 +107,10 @@ cleanup_buffer:
 	perf_buffer__free(s->pb);
 cleanup_bpf:
 	probe_bpf__destroy(s->obj);
+cleanup_handler:
+	free((void *)s->handler);
 cleanup_state:
-	free((void *) s);
+	free((void *)s);
 	s = NULL;
 
 free:
@@ -110,11 +132,13 @@ void destroy_state(struct state *s) {
 		if (s->obj != NULL) {
 			probe_bpf__destroy(s->obj);
 		}
-		
+		if (s->handler != NULL) {
+			free((void *)s->handler);
+		}
+		free((void *)s);
 	}
 }
 
 void poll_state(struct state *s, int timeout) {
-	usleep(1); // trigger a return value
 	perf_buffer__poll(s->pb, timeout);
 }
