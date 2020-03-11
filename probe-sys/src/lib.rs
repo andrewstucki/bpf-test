@@ -1,8 +1,8 @@
 #![allow(non_camel_case_types)]
 
-use std::panic;
 use std::fmt;
 use std::os::raw::c_int;
+use std::panic;
 
 pub mod ffi {
     use std::os::raw::{c_int, c_void};
@@ -35,8 +35,8 @@ pub mod ffi {
     /// Calling the trampoline function with anything except the `void*` pointer
     /// will result in *Undefined Behaviour*.
     ///
-    /// The closure should guarantee that it never panics, seeing as panicking 
-    /// across the FFI barrier is *Undefined Behaviour*. You may find 
+    /// The closure should guarantee that it never panics, seeing as panicking
+    /// across the FFI barrier is *Undefined Behaviour*. You may find
     /// `std::panic::catch_unwind()` useful.
     pub unsafe fn unpack_closure<F>(closure: &mut F) -> (*mut c_void, event_handler)
     where
@@ -56,13 +56,15 @@ pub mod ffi {
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    InitializationError
+    InitializationError,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::InitializationError => f.write_str("Could not initialize BPF object, ensure you're using Linux kernel >= 4.18"),
+            Error::InitializationError => f.write_str(
+                "Could not initialize BPF object, ensure you're using Linux kernel >= 4.18",
+            ),
         }
     }
 }
@@ -85,14 +87,16 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     pub fn new<F: 'a>(handler: F) -> Result<Self, Error>
-        where F: 'a + Fn(Event) + panic::RefUnwindSafe {
+    where
+        F: 'a + Fn(Event) + panic::RefUnwindSafe,
+    {
         let mut wrapper = move |e: ffi::event| {
             let result = panic::catch_unwind(|| {
-                handler(Event{
-                    tid: e.tid, 
+                handler(Event {
+                    tid: e.tid,
                     pid: e.pid,
-                    gid: e.gid, 
-                    uid: e.uid, 
+                    gid: e.gid,
+                    uid: e.uid,
                     cpu: e.cpu,
                 });
             });
@@ -102,9 +106,12 @@ impl<'a> State<'a> {
         let (closure, callback) = unsafe { ffi::unpack_closure(&mut wrapper) };
         let state = unsafe { ffi::new_state(closure, callback) };
         if state.is_null() {
-            return Err(Error::InitializationError)
+            return Err(Error::InitializationError);
         }
-        Ok(State { ctx: state, _handler: Box::new(wrapper) })
+        Ok(State {
+            ctx: state,
+            _handler: Box::new(wrapper),
+        })
     }
 
     pub fn poll(&self, timeout: i32) {
@@ -112,7 +119,7 @@ impl<'a> State<'a> {
     }
 }
 
-impl <'a>Drop for State<'a> {
+impl<'a> Drop for State<'a> {
     fn drop(&mut self) {
         unsafe { ffi::destroy_state(self.ctx) }
     }
