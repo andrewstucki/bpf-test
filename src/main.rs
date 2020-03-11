@@ -1,18 +1,10 @@
-use std::{thread, time};
-
-use probe_sys::{State, SleepEvent};
+use probe_sys::{State, Event};
 
 fn main() {
-    let probe = State::new(|e: SleepEvent| {
-        println!("Got a sleep! {:?}", e);
-    }).unwrap();
-
-    thread::sleep(time::Duration::from_millis(10));
-    thread::sleep(time::Duration::from_millis(10));
-    thread::sleep(time::Duration::from_millis(10));
-    thread::sleep(time::Duration::from_millis(10));
-    thread::sleep(time::Duration::from_millis(10));
-    thread::sleep(time::Duration::from_millis(10));
-    
-    probe.poll(100);
+    match State::new(|e: Event| {
+        println!("Got an event! {:?}", e);
+    }) {
+        Ok(probe) => { probe.poll(10000); },
+        Err(error) => { println!("{}", error); }
+    }
 }

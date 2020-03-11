@@ -5,7 +5,6 @@ use std::process::Command;
 fn main() {
   if cfg!(target_os = "linux") {
     let src_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("src");
-    println!("foo");
     let status = Command::new("make")
         .current_dir(src_dir.clone())
         .status()

@@ -3,17 +3,18 @@
 
 #include <stdint.h>
 
-struct sleep_event {
-	uint64_t cookie;
+struct event {
 	uint32_t tid;
 	uint32_t pid;
+	uint32_t gid;
+	uint32_t uid;
 	uint32_t cpu;
 };
 
-typedef void handle_sleep(void *ctx, struct sleep_event e);
+typedef void event_handler(void *ctx, struct event e);
 
 struct state;
-struct state * new_state(void *ctx, handle_sleep *handler);
+struct state * new_state(void *ctx, event_handler *handler);
 void poll_state(struct state *self, int timeout);
 void destroy_state(struct state *self);
 

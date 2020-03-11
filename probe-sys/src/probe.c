@@ -4,16 +4,13 @@
 #include <errno.h>
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
-#include <libelf.h>
-#include <bcc/bcc_elf.h>
-#include <bcc/bcc_syms.h>
 #include "probe.h"
 #include "_probe.h"
 #include "probe.skel.h"
 
-struct handle_sleep_wrapper {
+struct handle_event_wrapper {
 	void *ctx;
-	handle_sleep *handler;
+	event_handler *handler;
 };
 
 struct state {
@@ -21,36 +18,34 @@ struct state {
 	struct perf_buffer *pb;
 	struct bpf_link *kprobe;
 	struct bpf_link *uprobe;
-	struct handle_sleep_wrapper *handler;
+	struct handle_event_wrapper *handler;
 };
 
-static inline int sym_resolve_callback(const char *name, uint64_t addr, uint64_t _ignored, void *payload) {
-  struct bcc_symbol *sym = (struct bcc_symbol *)payload;
-  if (!strcmp(name, sym->name)) {
-    sym->offset = addr;
-    return -1;
-  }
-  return 0;
+int print_libbpf_log(enum libbpf_print_level lvl, const char *fmt, va_list args) {
+  // return vfprintf(stderr, fmt, args);
+	return 0;
 }
 
-static inline void handle_sleep_event(void *ctx, int cpu, void *data, __u32 size) {
-  struct event *e = data;
-	struct handle_sleep_wrapper *handle = ctx;
-	struct sleep_event event = {
-		.cookie = e->cookie,
-		.tid = (e->pid >> 32) & 0xFFFF,
-		.pid = e->pid & 0xFFFF,
+static inline void handle_event(void *ctx, int cpu, void *data, __u32 size) {
+  struct _event *e = data;
+	struct handle_event_wrapper *handle = ctx;
+	struct event ev = {
+		.tid = e->tid,
+		.pid = e->pid,
+		.gid = e->gid,
+		.uid = e->uid,
 		.cpu = cpu,
 	};
-	handle->handler(handle->ctx, event);
+	handle->handler(handle->ctx, ev);
 }
 
-struct state * new_state(void *ctx, handle_sleep *handler) {
+struct state * new_state(void *ctx, event_handler *handler) {
+	libbpf_set_print(print_libbpf_log);
 	struct state *s= (struct state *)malloc(sizeof(struct state));
 	if (!s) {
 		return NULL;
 	}
-	s->handler = (struct handle_sleep_wrapper *)malloc(sizeof(struct handle_sleep_wrapper));
+	s->handler = (struct handle_event_wrapper *)malloc(sizeof(struct handle_event_wrapper));
 	if (!s->handler) {
 		goto cleanup_state;
 	}
@@ -58,28 +53,9 @@ struct state * new_state(void *ctx, handle_sleep *handler) {
 	s->handler->handler = handler;
 
 	struct perf_buffer_opts pb_opts = {
-    .sample_cb = handle_sleep_event,
+    .sample_cb = handle_event,
 		.ctx = (void *)s->handler,
   };
-
-	const char *path = bcc_procutils_which_so("ssl", -1);
-	if (!path) {
-		goto cleanup_handler;
-	}
-
-  struct bcc_symbol_option option = {
-    .use_debug_file = 1,
-    .check_debug_file_crc = 1,
-    .lazy_symbolize = 1,
-    .use_symbol_type = (1 << STT_FUNC) | (1 << STT_GNU_IFUNC)
-  };
-	struct bcc_symbol sym = {
-		.name = "SSL_write"
-	};
-	int err = bcc_elf_foreach_sym(path, sym_resolve_callback, &option, &sym);
-	if ((err == -1) || (err == 0 && sym.offset == 0)) {
-		goto cleanup_handler;
-	}
 
 	s->obj = probe_bpf__open_and_load();
 	if (!s->obj) {
@@ -94,15 +70,9 @@ struct state * new_state(void *ctx, handle_sleep *handler) {
 	if (!s->kprobe) {
 		goto cleanup_buffer;
 	}
-	s->uprobe = bpf_program__attach_uprobe(s->obj->progs.handle_uprobe, true, -1, path, sym.offset);
-	if (!s->uprobe) {
-		goto cleanup_kprobe;
-	}
 
-	goto free;
+	goto done;
 
-cleanup_kprobe:
-	bpf_link__destroy(s->kprobe);
 cleanup_buffer:
 	perf_buffer__free(s->pb);
 cleanup_bpf:
@@ -113,8 +83,7 @@ cleanup_state:
 	free((void *)s);
 	s = NULL;
 
-free:
-	free((void *)path);
+done:
 	return s;
 }
 
@@ -125,9 +94,6 @@ void destroy_state(struct state *s) {
 		}
 		if (s->kprobe != NULL) {
 			bpf_link__destroy(s->kprobe);
-		}
-		if (s->uprobe != NULL) {
-			bpf_link__destroy(s->uprobe);
 		}
 		if (s->obj != NULL) {
 			probe_bpf__destroy(s->obj);
