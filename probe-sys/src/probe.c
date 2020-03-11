@@ -17,7 +17,6 @@ struct state {
 	struct probe_bpf *obj;
 	struct perf_buffer *pb;
 	struct bpf_link *kprobe;
-	struct bpf_link *uprobe;
 	struct handle_event_wrapper *handler;
 };
 
